@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#F8FAFC] text-[#111827] font-sans antialiased selection:bg-purple-100 selection:text-primary min-w-[320px] overflow-x-hidden;
+  }
+}
+
+@layer utilities {
+  /* Global consistent full-width container with responsive SaaS gutters */
+  .page-container {
+    width: 100%;
+    max-width: 1720px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: clamp(16px, 3vw, 56px);
+    padding-right: clamp(16px, 3vw, 56px);
+  }
+
+  .nav-container {
+    width: 100%;
+    max-width: 1720px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: clamp(16px, 3vw, 56px);
+    padding-right: clamp(16px, 3vw, 56px);
+  }
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
