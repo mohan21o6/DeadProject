@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Project, Review, Task, ResourceItem, TeamMember, IdeaCheckResult } from '../types';
 import {
@@ -9,7 +10,9 @@ import {
   DATASET_SOURCES_METADATA,
   DatasetSourceMetadata
 } from '../data/combinedProjects';
-import { analyzeIdea, calculateProjectRisk, calculateTeamReadiness } from '../utils/analysisEngine';
+import { analyzeIdea, calculateProjectRisk } from '../utils/analysisEngine';
+
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 interface ProjectContextType {
   projects: Project[];
@@ -20,8 +23,7 @@ interface ProjectContextType {
   selectedComparisonIds: string[];
   datasetSources: DatasetSourceMetadata[];
   isBackendConnected: boolean;
-  
-  // Project actions
+
   getProjectById: (id: string) => Project | undefined;
   getProjectBySlug: (slug: string) => Project | undefined;
   createProject: (projectData: Partial<Project>) => Project;
@@ -29,27 +31,22 @@ interface ProjectContextType {
   deleteProject: (id: string) => void;
   verifyProject: (id: string) => void;
   importGitHubRepository: (owner: string, repo: string, notes?: string) => Promise<{ success: boolean; message: string; project?: Project }>;
-  
-  // Reviews
+
   getProjectReviews: (projectId: string) => Review[];
   addReview: (projectId: string, rating: number, comment: string, user: { name: string; avatar: string; institution: string }) => void;
   voteReview: (reviewId: string, type: 'helpful' | 'unhelpful') => void;
-  
-  // Tasks
+
   getProjectTasks: (projectId: string) => Task[];
   addTask: (projectId: string, task: Omit<Task, 'id' | 'projectId'>) => void;
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   deleteTask: (taskId: string) => void;
-  
-  // Team
+
   addTeamMember: (member: Omit<TeamMember, 'id'>) => void;
   removeTeamMember: (id: string) => void;
-  
-  // Comparison
+
   toggleCompareProject: (projectId: string) => void;
   clearComparison: () => void;
-  
-  // Idea Checker
+
   checkIdea: (idea: { name: string; description: string; technologies: string[]; features: string[]; domain?: string }) => IdeaCheckResult;
   createProjectFromIdea: (ideaResult: IdeaCheckResult, ideaData: { name: string; description: string; technologies: string[]; features: string[]; domain: string }) => Project;
 }
@@ -67,9 +64,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (Array.isArray(parsed) && parsed.length >= INITIAL_COMBINED_PROJECTS.length) {
           return parsed;
         }
-      } catch (e) {
-        // fallback
-      }
+      } catch (e) {}
     }
     return INITIAL_COMBINED_PROJECTS;
   });
@@ -79,9 +74,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {
-        // fallback
-      }
+      } catch (e) {}
     }
     return INITIAL_REVIEWS;
   });
@@ -92,9 +85,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length >= COMBINED_TASKS.length) return parsed;
-      } catch (e) {
-        // fallback
-      }
+      } catch (e) {}
     }
     return COMBINED_TASKS;
   });
@@ -103,17 +94,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(INITIAL_TEAM_MEMBERS);
   const [selectedComparisonIds, setSelectedComparisonIds] = useState<string[]>([]);
 
-  // Sync to localStorage
+  // Save data locally in the visitor's browser
   useEffect(() => {
     try {
       localStorage.setItem('deadproject_projects_v3', JSON.stringify(projects));
-    } catch (e) {
-      // ignore storage quota issues with large datasets
-    }
+    } catch (e) {}
   }, [projects]);
 
   useEffect(() => {
-    localStorage.setItem('deadproject_reviews', JSON.stringify(reviews));
+    try {
+      localStorage.setItem('deadproject_reviews', JSON.stringify(reviews));
+    } catch (e) {}
   }, [reviews]);
 
   useEffect(() => {
@@ -122,14 +113,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e) {}
   }, [tasks]);
 
-  // Attempt backend health check
+  // Check deployed backend connection
   useEffect(() => {
-    fetch('http://localhost:5000/api/health')
-      .then(res => res.json())
+    fetch(`${API_URL}/api/health`)
+      .then(res => {
+        if (!res.ok) throw new Error('Backend health check failed');
+        return res.json();
+      })
       .then(data => {
-        if (data.status === 'online') {
-          setIsBackendConnected(true);
-        }
+        setIsBackendConnected(data.status === 'online');
       })
       .catch(() => {
         setIsBackendConnected(false);
@@ -146,6 +138,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const createProject = (projectData: Partial<Project>): Project => {
     const id = 'proj-' + Date.now();
+
     const newRisk = calculateProjectRisk({
       technologies: projectData.technologies || [],
       hardwareRequirements: projectData.hardwareRequirements,
@@ -189,8 +182,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       viewCount: 1,
       stars: 1,
       riskAnalysis: newRisk,
-      
-      // Provenance
       sourceType: 'user',
       source: 'User Submission',
       importedAt: new Date().toISOString(),
@@ -199,7 +190,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       attribution: 'Registered by user on DeadProject',
       verifiedFailureDetails: Boolean(projectData.failureReasons && projectData.failureReasons.length > 0),
       failureReasons: projectData.failureReasons || [],
-
       createdBy: projectData.createdBy || {
         id: 'u-100',
         name: 'Devansh Reddy',
@@ -215,9 +205,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const importGitHubRepository = async (owner: string, repo: string, notes?: string) => {
-    // Check duplicates locally first
     const repoUrl = `https://github.com/${owner}/${repo}`.toLowerCase();
     const existing = projects.find(p => p.githubUrl && p.githubUrl.toLowerCase() === repoUrl);
+
     if (existing) {
       return {
         success: false,
@@ -227,8 +217,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
-      // Call backend endpoint (GitHub API called via backend, not directly from frontend)
-      const res = await fetch('http://localhost:5000/api/github/import', {
+      const res = await fetch(`${API_URL}/api/github/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ owner, repo, customNotes: notes })
@@ -240,6 +229,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       const data = await res.json();
+
       if (data.project) {
         setProjects(prev => [data.project, ...prev]);
         return {
@@ -248,6 +238,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           project: data.project
         };
       }
+
       throw new Error('No project payload returned from backend.');
     } catch (err: any) {
       return {
@@ -258,12 +249,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateProject = (id: string, projectData: Partial<Project>) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id === id) {
-        return { ...p, ...projectData, updatedAt: new Date().toISOString() };
-      }
-      return p;
-    }));
+    setProjects(prev => prev.map(p =>
+      p.id === id ? { ...p, ...projectData, updatedAt: new Date().toISOString() } : p
+    ));
   };
 
   const deleteProject = (id: string) => {
@@ -271,10 +259,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const verifyProject = (id: string) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id === id) return { ...p, isVerified: true };
-      return p;
-    }));
+    setProjects(prev => prev.map(p =>
+      p.id === id ? { ...p, isVerified: true } : p
+    ));
   };
 
   const getProjectReviews = (projectId: string) => {
@@ -305,13 +292,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setProjects(prev => prev.map(p => {
       if (p.id === projectId) {
-        const projectReviews = [...getProjectReviews(projectId), newRev];
+        const projectReviews = [...reviews.filter(r => r.projectId === projectId), newRev];
         const avg = projectReviews.reduce((acc, curr) => acc + curr.rating, 0) / projectReviews.length;
-        return {
-          ...p,
-          rating: Number(avg.toFixed(1)),
-          reviewCount: projectReviews.length
-        };
+        return { ...p, rating: Number(avg.toFixed(1)), reviewCount: projectReviews.length };
       }
       return p;
     }));
@@ -320,11 +303,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const voteReview = (reviewId: string, type: 'helpful' | 'unhelpful') => {
     setReviews(prev => prev.map(r => {
       if (r.id === reviewId) {
-        if (type === 'helpful') {
-          return { ...r, helpfulCount: r.helpfulCount + 1, userVote: 'helpful' };
-        } else {
-          return { ...r, unhelpfulCount: r.unhelpfulCount + 1, userVote: 'unhelpful' };
-        }
+        return type === 'helpful'
+          ? { ...r, helpfulCount: r.helpfulCount + 1, userVote: 'helpful' }
+          : { ...r, unhelpfulCount: r.unhelpfulCount + 1, userVote: 'unhelpful' };
       }
       return r;
     }));
@@ -335,19 +316,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const addTask = (projectId: string, taskData: Omit<Task, 'id' | 'projectId'>) => {
-    const newTask: Task = {
-      id: 'task-' + Date.now(),
-      projectId,
-      ...taskData
-    };
+    const newTask: Task = { id: 'task-' + Date.now(), projectId, ...taskData };
     setTasks(prev => [newTask, ...prev]);
   };
 
   const updateTask = (taskId: string, updates: Partial<Task>) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) return { ...t, ...updates };
-      return t;
-    }));
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
   };
 
   const deleteTask = (taskId: string) => {
@@ -355,11 +329,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const addTeamMember = (member: Omit<TeamMember, 'id'>) => {
-    const newMember: TeamMember = {
-      id: 'tm-' + Date.now(),
-      ...member
-    };
-    setTeamMembers(prev => [...prev, newMember]);
+    setTeamMembers(prev => [...prev, { id: 'tm-' + Date.now(), ...member }]);
   };
 
   const removeTeamMember = (id: string) => {
@@ -368,23 +338,21 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const toggleCompareProject = (projectId: string) => {
     setSelectedComparisonIds(prev => {
-      if (prev.includes(projectId)) {
-        return prev.filter(id => id !== projectId);
-      }
-      if (prev.length >= 4) {
-        return [...prev.slice(1), projectId];
-      }
+      if (prev.includes(projectId)) return prev.filter(id => id !== projectId);
+      if (prev.length >= 4) return [...prev.slice(1), projectId];
       return [...prev, projectId];
     });
   };
 
-  const clearComparison = () => {
-    setSelectedComparisonIds([]);
-  };
+  const clearComparison = () => setSelectedComparisonIds([]);
 
-  const checkIdea = (idea: { name: string; description: string; technologies: string[]; features: string[]; domain?: string }) => {
-    return analyzeIdea(idea, projects);
-  };
+  const checkIdea = (idea: {
+    name: string;
+    description: string;
+    technologies: string[];
+    features: string[];
+    domain?: string;
+  }) => analyzeIdea(idea, projects);
 
   const createProjectFromIdea = (
     ideaResult: IdeaCheckResult,
